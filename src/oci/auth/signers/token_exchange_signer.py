@@ -19,8 +19,11 @@ class TokenExchangeSigner(SecurityTokenSigner):
     """
 
     
-    def __init__(self, jwt, oci_domain_id, client_id, client_secret, region=None, **kwargs):       
-        self.jwt = jwt
+    def __init__(self, jwt_or_func, oci_domain_id, client_id, client_secret, region=None, **kwargs):       
+        if callable(jwt_or_func):
+            self.jwt_function = jwt_or_func
+        else:
+            self.jwt_function = lambda: jwt_or_func
         self.client_id = client_id
         self.client_secret = client_secret
         self.oci_domain_id = oci_domain_id
@@ -43,9 +46,11 @@ class TokenExchangeSigner(SecurityTokenSigner):
         if not self.security_token_container.valid():
             self._refresh_security_token_inner()
         return super().__call__(request, enforce_content_headers)
-
+    def _get_jwt(self):
+        return self.jwt_function()
     def get_security_token(self):
         # Proactively refresh if token is past half its lifetime
+        # this piece of code is no longer needed. Remove it.
         if self.security_token_container.valid_with_half_expiration_time():
             return self.security_token_container.security_token
         else:
@@ -83,6 +88,7 @@ class TokenExchangeSigner(SecurityTokenSigner):
         Requests a new UPST token from the token exchange endpoint.
         """
         try:
+            jwt = self._get_jwt()
             private_key = self.session_key_supplier.private_key
             public_key = private_key.public_key()
             public_key_pem = public_key.public_bytes(
@@ -100,7 +106,7 @@ class TokenExchangeSigner(SecurityTokenSigner):
             data = {
                 "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
                 "requested_token_type": "urn:oci:token-type:oci-upst",
-                "subject_token": self.jwt,
+                "subject_token": jwt,
                 "subject_token_type": "jwt",
                 "public_key": public_key_pem
             }
