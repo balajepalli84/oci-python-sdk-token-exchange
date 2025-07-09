@@ -127,7 +127,7 @@ class TokenExchangeSigner(SecurityTokenSigner):
             payload = json.loads(payload_bytes)
             # Return pretty-printed JSON string
             print(json.dumps(payload, indent=4), flush=True)
-            print("=== DEBUG: REST API Call Parameters ==="), flush=True
+            print("=== DEBUG: REST API Call Parameters ===", flush=True)
             print("URL:", self.oci_domain_id, flush=True)
             print("Headers:", headers, flush=True)
             print("Data:", data, flush=True)
