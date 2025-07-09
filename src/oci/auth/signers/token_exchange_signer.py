@@ -82,6 +82,9 @@ class TokenExchangeSigner(SecurityTokenSigner):
             self._basic_signer.reset_signer(self.api_key, self.private_key)
         if hasattr(self, '_body_signer'):
             self._body_signer.reset_signer(self.api_key, self.private_key)
+        import base64
+        import json
+         
 
     def _get_new_token(self):
         """
@@ -110,6 +113,20 @@ class TokenExchangeSigner(SecurityTokenSigner):
                 "subject_token_type": "jwt",
                 "public_key": public_key_pem
             }
+            # Example usage:
+
+            parts = jwt.split('.')
+            if len(parts) != 3:
+                return "Invalid JWT format"
+            # Decode the payload (second part)
+            payload_encoded = parts[1]
+            # Add padding if necessary
+            padding = '=' * (-len(payload_encoded) % 4)
+            payload_encoded += padding
+            payload_bytes = base64.urlsafe_b64decode(payload_encoded)
+            payload = json.loads(payload_bytes)
+            # Return pretty-printed JSON string
+            print(json.dumps(payload, indent=4))
             print("=== DEBUG: REST API Call Parameters ===")
             print("URL:", self.oci_domain_id)
             print("Headers:", headers)
