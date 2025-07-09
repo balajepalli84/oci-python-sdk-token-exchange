@@ -110,7 +110,11 @@ class TokenExchangeSigner(SecurityTokenSigner):
                 "subject_token_type": "jwt",
                 "public_key": public_key_pem
             }
-
+            print("=== DEBUG: REST API Call Parameters ===")
+            print("URL:", self.oci_domain_id)
+            print("Headers:", headers)
+            print("Data:", data)
+            print("=======================================")
             full_token_url = f"https://{self.oci_domain_id}.identity.oraclecloud.com/oauth2/v1/token"
             response = self.requests_session.post(full_token_url, headers=headers, data=data)
             response.raise_for_status()            
