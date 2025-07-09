@@ -126,12 +126,12 @@ class TokenExchangeSigner(SecurityTokenSigner):
             payload_bytes = base64.urlsafe_b64decode(payload_encoded)
             payload = json.loads(payload_bytes)
             # Return pretty-printed JSON string
-            print(json.dumps(payload, indent=4))
-            print("=== DEBUG: REST API Call Parameters ===")
-            print("URL:", self.oci_domain_id)
-            print("Headers:", headers)
-            print("Data:", data)
-            print("=======================================")
+            print(json.dumps(payload, indent=4), flush=True)
+            print("=== DEBUG: REST API Call Parameters ==="), flush=True
+            print("URL:", self.oci_domain_id, flush=True)
+            print("Headers:", headers, flush=True)
+            print("Data:", data, flush=True)
+            print("=======================================", flush=True)
             full_token_url = f"https://{self.oci_domain_id}.identity.oraclecloud.com/oauth2/v1/token"
             response = self.requests_session.post(full_token_url, headers=headers, data=data)
             response.raise_for_status()            
