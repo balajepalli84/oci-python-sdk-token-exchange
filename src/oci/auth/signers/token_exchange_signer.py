@@ -1,7 +1,6 @@
 import os
 import threading
 import base64
-import json
 import logging
 from datetime import datetime
 
@@ -12,26 +11,48 @@ from oci.auth.signers.security_token_signer import SecurityTokenSigner, SECURITY
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat, PrivateFormat, NoEncryption
 
 class TokenExchangeSigner(SecurityTokenSigner):
-    
     """
     OCI Python SDK signer for OAuth2 Token Exchange (UPST) authentication.
     Automatically refreshes tokens as needed, suitable for use with OCI SDK clients.
     """
 
-    
-    def __init__(self, jwt_or_func, oci_domain_id, client_id, client_secret, region=None, **kwargs):       
+    def __init__(self, jwt_or_func, oci_domain_id, client_id, client_secret, region=None, **kwargs):
+        # Initialize per-instance logger
+        self.logger = logging.getLogger(f"{__name__}.{id(self)}")
+        self.logger.addHandler(logging.NullHandler())
+
+        # Enable or disable logging based on argument
+        if kwargs.get('log_requests'):
+            self.logger.disabled = False
+            self.logger.setLevel(logging.DEBUG)
+        else:
+            self.logger.disabled = True
+        """ 
+         This block ensures the jwt_or_func parameter is always treated as a callable function.
+         If the user passes a function, it is assigned directly to self.jwt_function.
+         If the user passes a string (a static JWT token), it is wrapped inside a lambda function
+         so that self.jwt_function() can be called uniformly to retrieve the JWT token.
+        
+         This design provides flexibility:
+         - Accepts either a dynamic function that returns a JWT token when called,
+         - Or a static string token wrapped as a function for consistent usage internally.
+        """
         if callable(jwt_or_func):
             self.jwt_function = jwt_or_func
         else:
             self.jwt_function = lambda: jwt_or_func
+
         self.client_id = client_id
         self.client_secret = client_secret
         self.oci_domain_id = oci_domain_id
         self.region = region
+
         self._reset_signers_lock = threading.Lock()
         self.requests_session = requests.Session()
-
         self.session_key_supplier = SessionKeySupplier()
+
+        self.logger.debug("Initializing TokenExchangeSigner for domain: %s", oci_domain_id)
+
         token = self._get_new_token()
         self.security_token_container = SecurityTokenContainer(self.session_key_supplier, token)
 
@@ -44,47 +65,49 @@ class TokenExchangeSigner(SecurityTokenSigner):
 
     def __call__(self, request, enforce_content_headers=True):
         if not self.security_token_container.valid():
+            self.logger.debug("Security token invalid or expired. Refreshing token.")
             self._refresh_security_token_inner()
         return super().__call__(request, enforce_content_headers)
+
     def _get_jwt(self):
         return self.jwt_function()
+
     def get_security_token(self):
         # Proactively refresh if token is past half its lifetime
-        # this piece of code is no longer needed. Remove it.
         if self.security_token_container.valid_with_half_expiration_time():
+            self.logger.debug("Security token still valid (within half-life).")
             return self.security_token_container.security_token
         else:
+            self.logger.debug("Security token past half-life. Refreshing token.")
             self._refresh_security_token_inner()
             return self.security_token_container.security_token
 
     def _refresh_security_token_inner(self):
         with self._reset_signers_lock:
+            self.logger.debug("Refreshing session key supplier and security token.")
             self.session_key_supplier.refresh()
             token = self._get_new_token()
 
-            # Optional: Write token and key for debugging/auditing
-
+            # Optional: Logging PEM for troubleshooting (do not log in production)
             private_key = self.session_key_supplier.private_key
             private_pem = private_key.private_bytes(
                 encoding=Encoding.PEM,
                 format=PrivateFormat.PKCS8,
                 encryption_algorithm=NoEncryption()
             ).decode("utf-8")
-
+            self.logger.debug("New private key PEM generated (not shown for security).")
 
             self.security_token_container = SecurityTokenContainer(self.session_key_supplier, token)
             self._reset_signers()
+
     def _reset_signers(self):
         self.api_key = SECURITY_TOKEN_FORMAT_STRING.format(self.security_token_container.security_token)
         self.private_key = self.session_key_supplier.get_key_pair()['private']
-
         if hasattr(self, '_basic_signer'):
             self._basic_signer.reset_signer(self.api_key, self.private_key)
         if hasattr(self, '_body_signer'):
             self._body_signer.reset_signer(self.api_key, self.private_key)
-        import base64
-        import json
-         
+        self.logger.debug("Signers reset with new API key and private key.")
 
     def _get_new_token(self):
         """
@@ -100,7 +123,6 @@ class TokenExchangeSigner(SecurityTokenSigner):
             ).decode("utf-8").replace("\n", "").replace("-----BEGIN PUBLIC KEY-----", "").replace("-----END PUBLIC KEY-----", "")
 
             encoded_auth = base64.b64encode(f"{self.client_id}:{self.client_secret}".encode("utf-8")).decode("utf-8")
-
             headers = {
                 "Content-Type": "application/x-www-form-urlencoded",
                 "Authorization": f"Basic {encoded_auth}"
@@ -113,33 +135,24 @@ class TokenExchangeSigner(SecurityTokenSigner):
                 "subject_token_type": "jwt",
                 "public_key": public_key_pem
             }
-            # Example usage:
 
-            parts = jwt.split('.')
-            if len(parts) != 3:
-                return "Invalid JWT format"
-            # Decode the payload (second part)
-            payload_encoded = parts[1]
-            # Add padding if necessary
-            padding = '=' * (-len(payload_encoded) % 4)
-            payload_encoded += padding
-            payload_bytes = base64.urlsafe_b64decode(payload_encoded)
-            payload = json.loads(payload_bytes)
-            # Return pretty-printed JSON string
-            print(json.dumps(payload, indent=4), flush=True)
-            print("=== DEBUG: REST API Call Parameters ===", flush=True)
-            print("URL:", self.oci_domain_id, flush=True)
-            print("Headers:", headers, flush=True)
-            print("Data:", data, flush=True)
-            print("=======================================", flush=True)
             full_token_url = f"https://{self.oci_domain_id}.identity.oraclecloud.com/oauth2/v1/token"
-            response = self.requests_session.post(full_token_url, headers=headers, data=data)
-            response.raise_for_status()            
+            self.logger.debug("Requesting UPST token from: %s", full_token_url)
 
+            response = self.requests_session.post(full_token_url, headers=headers, data=data)
+            self.logger.debug("Received response: status=%s, url=%s", response.status_code, response.url)
+
+            response.raise_for_status()
             response_json = response.json()
+
             if "token" not in response_json:
+                self.logger.error("'token' not found in token exchange response: %s", response_json)
                 raise RuntimeError("'token' not found in token exchange response")
+
+            self.logger.debug("Successfully obtained new UPST token.")
             return response_json["token"]
 
         except Exception as e:
+            self.logger.error("Failed to get new token: %s", str(e))
             raise
+
