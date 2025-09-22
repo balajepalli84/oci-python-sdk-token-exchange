@@ -1,14 +1,14 @@
-import os
 import threading
 import base64
 import logging
-from datetime import datetime
+
 
 from oci._vendor import requests
 from oci.auth.session_key_supplier import SessionKeySupplier
 from oci.auth.security_token_container import SecurityTokenContainer
 from oci.auth.signers.security_token_signer import SecurityTokenSigner, SECURITY_TOKEN_FORMAT_STRING
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat, PrivateFormat, NoEncryption
+
 
 class TokenExchangeSigner(SecurityTokenSigner):
     """
@@ -31,8 +31,7 @@ class TokenExchangeSigner(SecurityTokenSigner):
          This block ensures the jwt_or_func parameter is always treated as a callable function.
          If the user passes a function, it is assigned directly to self.jwt_function.
          If the user passes a string (a static JWT token), it is wrapped inside a lambda function
-         so that self.jwt_function() can be called uniformly to retrieve the JWT token.
-        
+         so that self.jwt_function() can be called uniformly to retrieve the JWT token.        
          This design provides flexibility:
          - Accepts either a dynamic function that returns a JWT token when called,
          - Or a static string token wrapped as a function for consistent usage internally.
@@ -87,16 +86,7 @@ class TokenExchangeSigner(SecurityTokenSigner):
             self.logger.debug("Refreshing session key supplier and security token.")
             self.session_key_supplier.refresh()
             token = self._get_new_token()
-
-            # Optional: Logging PEM for troubleshooting (do not log in production)
-            private_key = self.session_key_supplier.private_key
-            private_pem = private_key.private_bytes(
-                encoding=Encoding.PEM,
-                format=PrivateFormat.PKCS8,
-                encryption_algorithm=NoEncryption()
-            ).decode("utf-8")
             self.logger.debug("New private key PEM generated (not shown for security).")
-
             self.security_token_container = SecurityTokenContainer(self.session_key_supplier, token)
             self._reset_signers()
 
@@ -155,4 +145,3 @@ class TokenExchangeSigner(SecurityTokenSigner):
         except Exception as e:
             self.logger.error("Failed to get new token: %s", str(e))
             raise
-
